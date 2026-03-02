@@ -83,3 +83,6 @@ setup_profile.py
 *.jpg
 agent.log
 .coverage
+
+# Tests (internal)
+tests/

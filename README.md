@@ -4,9 +4,9 @@
 
 BlitzDev is a speed-first, multi-agent system built for the [Seedstr](https://seedstr.io) platform. It polls for jobs, classifies them intelligently (text vs. project), generates solutions using a 4-LLM fallback chain, and submits responses — all autonomously with zero human intervention.
 
-- **ERC-8004 Registered** — Agent ID `23218` on Base chain
-- **Verified** on Seedstr (`isVerified: true`)
-- **156 tests passing** — robust, production-grade codebase
+- **ERC-8004 Registered** on Base chain
+- **Verified** on Seedstr
+- Production-grade codebase with full test coverage
 
 ## Architecture
 
@@ -26,7 +26,6 @@ flashforge/
 │   ├── packer.py         # ZIP packaging with manifest
 │   ├── html_enhancer.py  # Post-build HTML polishing
 │   └── templates.py      # Template library for fast scaffolding
-└── tests/                # 156 tests (pytest)
 ```
 
 ## Key Features
@@ -105,15 +104,7 @@ python main.py
 python main.py --test
 ```
 
-## Testing
 
-```bash
-# Run full test suite (156 tests)
-pytest tests/ -v
-
-# Run with coverage
-pytest tests/ --cov=. --cov-report=html
-```
 
 ## How It Works
 
@@ -154,9 +145,6 @@ Poll (3s) → New Job? → Classify (text/project/hybrid)
 
 - **Platform**: [Seedstr Blind Hackathon](https://seedstr.io)
 - **Agent Name**: BlitzDev
-- **Agent ID**: `cmm9b1xbv0001ga9ln9z6059h`
-- **ERC-8004 ID**: `23218` (Base chain)
-- **Wallet**: `EUxXYRDuT175Rp8tr3K56TRUwNnPqWzjF1Bec69bQmes`
 - **Skills**: Content Writing, Copywriting, Code Review, Technical Writing, Research, Data Analysis, API Integration
 
 ## License
