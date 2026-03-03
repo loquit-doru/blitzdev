@@ -186,6 +186,27 @@ async def _classify_with_llm(llm, prompt: str) -> str:
         return "text"  # safe default on failure
 
 
+def _inline_markdown(text: str) -> str:
+    """Convert inline markdown (bold, italic, code) to HTML.
+    Input should already be HTML-escaped (*, `, # are not HTML-special so survive escaping).
+    """
+    # Code spans first — protect from bold/italic processing
+    text = _re.sub(
+        r'`([^`]+)`',
+        r'<code class="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-sm font-mono">\1</code>',
+        text,
+    )
+    # Bold (**text**)
+    text = _re.sub(
+        r'\*\*(.+?)\*\*',
+        r'<strong class="font-semibold text-gray-900 dark:text-white">\1</strong>',
+        text,
+    )
+    # Italic (*text*) — negative lookbehind/ahead to avoid matching bold remnants
+    text = _re.sub(r'(?<!\*)\*([^*]+)\*(?!\*)', r'<em>\1</em>', text)
+    return text
+
+
 console = Console()
 
 
@@ -416,9 +437,16 @@ class BlitzDevAgent:
         console.print("\n[bold]📝 Text-Only Fast Path[/bold]")
 
         try:
-            # ── 0. Web search for factual/current queries (parallel-safe) ──
+            # ── 0. Determine job priority ──
+            is_swarm = job.is_swarm()
+            text_llm = settings.PRIMARY_LLM if is_swarm else LLMProvider.ANTHROPIC
+            llm_label = "Groq (speed)" if is_swarm else "Sonnet (quality)"
+
+            # ── 0.5. Web search for factual/current queries ──
+            # SWARM jobs: skip web search — speed > context for auto-pay
+            # STANDARD jobs: web search improves quality (human picks winner)
             search_context = ""
-            if needs_web_search(job.prompt):
+            if not is_swarm and needs_web_search(job.prompt):
                 search_start = time.time()
                 try:
                     results = await web_search(job.prompt[:200], max_results=5, timeout=6.0)
@@ -429,22 +457,22 @@ class BlitzDevAgent:
                     console.print(f"[dim]⚠ Web search failed (non-critical): {e}[/dim]")
 
             # ── 1. Generate text answer ──
-            # STANDARD jobs: human picks winner → quality wins → Claude Sonnet
-            # SWARM jobs: auto-pay on submit → speed wins → Groq (free)
-            is_swarm = job.is_swarm()
-            text_llm = settings.PRIMARY_LLM if is_swarm else LLMProvider.ANTHROPIC
-            llm_label = "Groq (speed)" if is_swarm else "Sonnet (quality)"
             console.print(f"[dim]LLM: {llm_label}[/dim]")
 
             system = (
                 "You are BlitzDev, an expert AI agent on the Seedstr platform. "
                 "Your responses win jobs by being insightful, well-structured, and directly useful.\n\n"
-                "RESPONSE FORMAT:\n"
-                "- Use markdown: ## headings, **bold** key terms, bullet lists\n"
+                "RESPONSE FORMAT (this is critical for readability):\n"
+                "- Use markdown headings: ## for main sections, ### for subsections\n"
+                "- Use **bold** for key terms and important takeaways\n"
+                "- Use bullet lists (- item) for enumerations and comparisons\n"
+                "- Use numbered lists (1. step) for sequential processes\n"
+                "- Use `code` for technical terms, file names, commands\n"
+                "- Use > blockquotes for key insights or callouts\n"
                 "- Lead with the KEY INSIGHT first, then expand with depth\n"
                 "- Write 3-5 substantial sections — each with real analysis, not just bullet headers\n"
-                "- Mix paragraphs with bullet lists for readability\n"
-                "- End with a clear, actionable takeaway\n\n"
+                "- Mix paragraphs with bullet lists for visual variety\n"
+                "- End with a clear, actionable takeaway section\n\n"
                 "HONESTY — THIS IS NON-NEGOTIABLE:\n"
                 "- NEVER invent statistics, percentages, dollar amounts, or numbers\n"
                 "- NEVER fabricate quotes, studies, reports, or named sources\n"
@@ -598,19 +626,139 @@ class BlitzDevAgent:
         safe_prompt = html_mod.escape(prompt)
         safe_answer = html_mod.escape(answer)
 
-        # Convert to formatted paragraphs with heading detection
-        html_parts = []
+        # ── Markdown → styled HTML conversion ──
+        # Handles: headings (# ## ###), **bold**, *italic*, `code`,
+        #          code blocks (```), - / * lists, 1. numbered lists,
+        #          blockquotes (>), horizontal rules (---), plain paragraphs.
+        html_parts: list[str] = []
+        in_code_block = False
+        in_list = False
+        list_type: str | None = None  # 'ul' | 'ol'
+
+        def _close_list():
+            nonlocal in_list, list_type
+            if in_list:
+                html_parts.append("</ol>" if list_type == "ol" else "</ul>")
+                in_list = False
+                list_type = None
+
         for line in safe_answer.split("\n"):
             stripped = line.strip()
-            if not stripped:
+
+            # ── Code blocks (```) ──
+            if stripped.startswith("```"):
+                if in_code_block:
+                    html_parts.append("</code></pre>")
+                    in_code_block = False
+                else:
+                    _close_list()
+                    html_parts.append(
+                        '<pre class="bg-gray-800 text-gray-100 rounded-xl p-5 '
+                        'overflow-x-auto my-6 text-sm font-mono leading-relaxed">'
+                        "<code>"
+                    )
+                    in_code_block = True
                 continue
-            # Detect headings (short lines ending with : or ALL CAPS)
-            if (len(stripped) < 100 and stripped.endswith(":")) or (stripped.isupper() and len(stripped) < 80):
-                html_parts.append(f'<h2 class="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white mt-10 mb-4 font-sans">{stripped}</h2>')
-            elif stripped.startswith("- ") or stripped.startswith("• "):
-                html_parts.append(f'<li class="ml-4 mb-2">{stripped[2:]}</li>')
-            else:
-                html_parts.append(f'<p class="mb-5 text-lg leading-relaxed">{stripped}</p>')
+            if in_code_block:
+                html_parts.append(stripped + "\n")
+                continue
+
+            # ── Empty line → close list, skip ──
+            if not stripped:
+                _close_list()
+                continue
+
+            # ── Blockquotes (> text) — note: > is escaped to &gt; by html_mod.escape ──
+            if stripped.startswith("&gt; "):
+                _close_list()
+                quote = _inline_markdown(stripped[5:])
+                html_parts.append(
+                    f'<blockquote class="border-l-4 border-blue-400 dark:border-blue-600 '
+                    f'pl-4 py-2 my-4 text-gray-600 dark:text-gray-400 italic">{quote}</blockquote>'
+                )
+                continue
+
+            # ── Horizontal rule (--- / *** / ___) ──
+            if stripped in ("---", "***", "___"):
+                _close_list()
+                html_parts.append('<hr class="my-8 border-gray-200 dark:border-gray-700">')
+                continue
+
+            # ── Headings (# / ## / ###) ──
+            h_match = _re.match(r"^(#{1,3})\s+(.+)", stripped)
+            if h_match:
+                _close_list()
+                level = len(h_match.group(1))
+                h_text = _inline_markdown(h_match.group(2))
+                if level <= 2:
+                    html_parts.append(
+                        f'<h2 class="text-2xl md:text-3xl font-bold text-gray-900 '
+                        f'dark:text-white mt-10 mb-4 font-sans">{h_text}</h2>'
+                    )
+                else:
+                    html_parts.append(
+                        f'<h3 class="text-xl md:text-2xl font-semibold text-gray-800 '
+                        f'dark:text-gray-200 mt-8 mb-3 font-sans">{h_text}</h3>'
+                    )
+                continue
+
+            # ── Unordered list (- / * / •) ──
+            ul_match = _re.match(r"^[-*•]\s+(.+)", stripped)
+            if ul_match:
+                if not in_list or list_type != "ul":
+                    if in_list:
+                        html_parts.append("</ol>")
+                    html_parts.append('<ul class="space-y-2 my-4">')
+                    in_list = True
+                    list_type = "ul"
+                item = _inline_markdown(ul_match.group(1))
+                html_parts.append(
+                    f'<li class="flex items-start gap-3 text-gray-700 dark:text-gray-300">'
+                    f'<span class="text-blue-500 mt-1.5 flex-shrink-0">●</span>'
+                    f'<span>{item}</span></li>'
+                )
+                continue
+
+            # ── Ordered list (1. / 2. / …) ──
+            ol_match = _re.match(r"^(\d+)\.\s+(.+)", stripped)
+            if ol_match:
+                if not in_list or list_type != "ol":
+                    if in_list:
+                        html_parts.append("</ul>")
+                    html_parts.append('<ol class="space-y-2 my-4">')
+                    in_list = True
+                    list_type = "ol"
+                num = ol_match.group(1)
+                item = _inline_markdown(ol_match.group(2))
+                html_parts.append(
+                    f'<li class="flex items-start gap-3 text-gray-700 dark:text-gray-300">'
+                    f'<span class="text-blue-500 font-bold flex-shrink-0">{num}.</span>'
+                    f'<span>{item}</span></li>'
+                )
+                continue
+
+            # ── Fallback heading detection (UPPERCASE or ends with :) ──
+            if (len(stripped) < 100 and stripped.endswith(":")) or (
+                stripped.isupper() and len(stripped) < 80
+            ):
+                _close_list()
+                html_parts.append(
+                    f'<h2 class="text-2xl md:text-3xl font-bold text-gray-900 '
+                    f'dark:text-white mt-10 mb-4 font-sans">{_inline_markdown(stripped)}</h2>'
+                )
+                continue
+
+            # ── Regular paragraph ──
+            _close_list()
+            html_parts.append(
+                f'<p class="mb-5 text-lg leading-relaxed">{_inline_markdown(stripped)}</p>'
+            )
+
+        # Close any open tags
+        if in_code_block:
+            html_parts.append("</code></pre>")
+        _close_list()
+
         content_html = "\n".join(html_parts)
 
         # Calculate stats for hero
@@ -772,6 +920,7 @@ function saveState(k,v) {{ appState[k]=v; localStorage.setItem('blitzdev_state',
         Process a single job through the full project pipeline.
         
         Pipeline:
+        0. Quick text preview (Groq, ~3s) — submitted FIRST for speed
         1. Plan (PlannerAgent)
         2. Build (BuilderAgent)
         3. Evaluate (CriticAgent)  — skip if budget < $0.50 for speed
@@ -783,6 +932,42 @@ function saveState(k,v) {{ appState[k]=v; localStorage.setItem('blitzdev_state',
         start_time = time.time()
         
         console.print("\n[bold]🔄 Starting Pipeline[/bold]")
+        
+        # ── Step 0: Quick text preview — "seat at the table" in <5s ──
+        # Generates a brief technical overview with Groq (free + fast)
+        # and submits as TEXT. The full PROJECT pipeline runs after.
+        try:
+            preview_resp = await self.llm.generate(
+                prompt=(
+                    "Give a concise expert technical overview of how you would build this. "
+                    "Cover: architecture, key tech choices, main features, and UX approach. "
+                    "Use markdown (## headings, **bold**, bullet lists). "
+                    "Be specific — mention actual technologies.\n\n"
+                    f"{job.prompt}"
+                ),
+                max_tokens=2048,
+                temperature=0.7,
+                system_prompt=(
+                    "You are BlitzDev, a senior full-stack developer. "
+                    "Give a structured, insightful technical brief. "
+                    "Focus on architecture decisions and implementation approach. "
+                    "Write like a lead engineer briefing stakeholders."
+                ),
+                provider=settings.PRIMARY_LLM,  # Groq — fast & free
+            )
+            preview_text = preview_resp.content.strip()
+            if len(preview_text) > 100:
+                note = "\n\n---\n*⚡ Quick technical brief — full interactive build uploading shortly...*"
+                await self.client.submit_response(
+                    job_id=job.id,
+                    content=preview_text + note,
+                    response_type=ResponseType.TEXT,
+                    use_v2=True,
+                )
+                preview_time = time.time() - start_time
+                console.print(f"[green]✓ Quick text preview submitted ({len(preview_text)} chars, {preview_time:.1f}s)[/green]")
+        except Exception as e:
+            console.print(f"[dim]⚠ Text preview skipped: {e}[/dim]")
         
         with Progress(
             SpinnerColumn(),
