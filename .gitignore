@@ -86,3 +86,13 @@ agent.log
 
 # Tests (internal)
 tests/
+
+# ============================================
+# Core source (private — not published)
+# ============================================
+main.py
+config.py
+seedstr_client.py
+agents/
+utils/
+demo.py
