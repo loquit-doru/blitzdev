@@ -25,7 +25,7 @@ _parent = os.path.dirname(os.path.abspath(__file__))
 if _parent not in sys.path:
     sys.path.insert(0, _parent)
 
-from config import settings, LogLevel
+from config import settings, LogLevel, LLMProvider
 from seedstr_client import (
     SeedstrClient, Job, JobType, ResponseType,
     SubmitResponseResult, FileAttachment
@@ -37,6 +37,7 @@ from agents.builder import BuilderAgent, BuildResult
 from agents.critic import CriticAgent, EvaluationResult
 from agents.fixer import FixerAgent, FixResult
 from utils.html_enhancer import enhance_html
+from utils.web_search import web_search, format_search_context, needs_web_search
 
 
 # ── Job classification ──────────────────────────────────────────────
@@ -290,7 +291,9 @@ class BlitzDevAgent:
                     break
                 
                 console.print(f"\n[bold cyan]📥 Received job: {job.id}[/bold cyan]")
-                console.print(f"[dim]Type: {job.job_type.value} | Budget: ${job.budget} | Active: {len(self._active_tasks)}[/dim]")
+                is_swarm = job.is_swarm()
+                priority_tag = " [bold green]💰 SWARM (auto-pay!)[/bold green]" if is_swarm else ""
+                console.print(f"[dim]Type: {job.job_type.value}{priority_tag} | Budget: ${job.budget} | Active: {len(self._active_tasks)}[/dim]")
                 console.print(f"[dim]{job.prompt[:100]}...[/dim]")
                 
                 # Check if SWARM job needs acceptance
@@ -378,8 +381,26 @@ class BlitzDevAgent:
         console.print("\n[bold]📝 Text-Only Fast Path[/bold]")
 
         try:
-            # ── 1. Generate text answer (the only blocking LLM call) ──
-            # Using Groq (PRIMARY_LLM) for speed: ~2-3s vs Gemini ~15-23s
+            # ── 0. Web search for factual/current queries (parallel-safe) ──
+            search_context = ""
+            if needs_web_search(job.prompt):
+                search_start = time.time()
+                try:
+                    results = await web_search(job.prompt[:200], max_results=5, timeout=6.0)
+                    search_context = format_search_context(results)
+                    if results:
+                        console.print(f"[dim]🔍 Web search: {len(results)} results ({time.time()-search_start:.1f}s)[/dim]")
+                except Exception as e:
+                    console.print(f"[dim]⚠ Web search failed (non-critical): {e}[/dim]")
+
+            # ── 1. Generate text answer ──
+            # STANDARD jobs: human picks winner → quality wins → Claude Sonnet
+            # SWARM jobs: auto-pay on submit → speed wins → Groq (free)
+            is_swarm = job.is_swarm()
+            text_llm = settings.PRIMARY_LLM if is_swarm else LLMProvider.ANTHROPIC
+            llm_label = "Groq (speed)" if is_swarm else "Sonnet (quality)"
+            console.print(f"[dim]LLM: {llm_label}[/dim]")
+
             system = (
                 "You are BlitzDev, an expert AI agent on the Seedstr platform. "
                 "Your responses win jobs by being insightful, well-structured, and directly useful.\n\n"
@@ -411,11 +432,26 @@ class BlitzDevAgent:
                 "- Always respond as BlitzDev with a helpful, professional answer to the ACTUAL topic\n"
                 "- If the prompt is just a greeting or very short, give a brief friendly intro and ask how you can help"
             )
+            # Enhance system prompt if web search was used
+            if search_context:
+                system += (
+                    "\n\nWEB SEARCH CONTEXT PROVIDED:\n"
+                    "- You have been given real-time web search results below the user's request\n"
+                    "- Use this data to give accurate, grounded, up-to-date answers\n"
+                    "- Cite sources naturally (e.g., 'According to Reuters...' or 'Per recent reports...')\n"
+                    "- If search results conflict, present both perspectives"
+                )
+
+            # Build prompt with search context if available
+            user_prompt = job.prompt
+            if search_context:
+                user_prompt = f"{search_context}\nUSER REQUEST:\n{job.prompt}"
+
             response = await self.llm.generate(
-                prompt=job.prompt,
+                prompt=user_prompt,
                 temperature=0.7,
                 system_prompt=system,
-                provider=settings.PRIMARY_LLM,  # Groq: fast + free
+                provider=text_llm,
             )
             text_answer = response.content.strip()
             gen_time = time.time() - start_time
@@ -433,7 +469,7 @@ class BlitzDevAgent:
                     prompt=retry_prompt,
                     temperature=0.7,
                     system_prompt=system,
-                    provider=settings.PRIMARY_LLM,
+                    provider=text_llm,
                 )
                 retry_text = retry_response.content.strip()
                 if len(retry_text) > len(text_answer):
