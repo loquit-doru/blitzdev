@@ -430,10 +430,11 @@ class SeedstrClient:
         content: str,
         response_type: ResponseType = ResponseType.TEXT,
         files: Optional[List[FileAttachment]] = None,
-        use_v2: bool = True
+        use_v2: bool = True,
+        max_retries: int = 3
     ) -> SubmitResponseResult:
         """
-        Submit a response to a job
+        Submit a response to a job, with exponential backoff retry on transient errors.
         
         Args:
             job_id: Job ID
@@ -441,59 +442,82 @@ class SeedstrClient:
             response_type: TEXT or FILE
             files: Optional file attachments (from upload_file)
             use_v2: Use v2 API
+            max_retries: Max retry attempts on transient errors (5xx, network)
         
         Returns:
             SubmitResponseResult
         """
-        try:
-            data = {
-                "content": content,
-                "responseType": response_type.value
-            }
-            
-            if files:
-                data["files"] = [
-                    {
-                        "url": f.url,
-                        "name": f.name,
-                        "size": f.size,
-                        "type": f.type
-                    }
-                    for f in files
-                ]
-            
-            # Direct request to handle 409 gracefully
-            session = await self._get_session()
-            base_url = self.api_url_v2 if use_v2 else self.api_url
-            url = f"{base_url}/jobs/{job_id}/respond"
-            
-            async with session.request("POST", url, json=data) as resp:
-                response_data = await resp.json()
+        data = {
+            "content": content,
+            "responseType": response_type.value
+        }
+        
+        if files:
+            data["files"] = [
+                {
+                    "url": f.url,
+                    "name": f.name,
+                    "size": f.size,
+                    "type": f.type
+                }
+                for f in files
+            ]
+        
+        last_error = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                session = await self._get_session()
+                base_url = self.api_url_v2 if use_v2 else self.api_url
+                url = f"{base_url}/jobs/{job_id}/respond"
                 
-                if resp.status == 409:
-                    # Already submitted — treat as success (idempotent)
-                    self._stats["responses_submitted"] += 1
-                    return SubmitResponseResult(
-                        success=True,
-                        message="Already submitted (409)",
-                    )
-                
-                if not resp.ok:
+                async with session.request("POST", url, json=data) as resp:
+                    response_data = await resp.json()
+                    
+                    if resp.status == 409:
+                        # Already submitted — treat as success (idempotent)
+                        self._stats["responses_submitted"] += 1
+                        return SubmitResponseResult(
+                            success=True,
+                            message="Already submitted (409)",
+                        )
+                    
+                    if resp.ok:
+                        self._stats["responses_submitted"] += 1
+                        return SubmitResponseResult(
+                            success=True,
+                            response_id=response_data.get("responseId"),
+                            message=response_data.get("message")
+                        )
+                    
+                    # Transient server errors (5xx) — retry with backoff
+                    if resp.status >= 500 and attempt < max_retries:
+                        wait = 2 ** attempt  # 2s, 4s, 8s
+                        if settings.LOG_LEVEL == LogLevel.DEBUG:
+                            print(f"Submit attempt {attempt} got {resp.status}, retrying in {wait}s...")
+                        await asyncio.sleep(wait)
+                        last_error = f"API error: {resp.status}"
+                        continue
+                    
+                    # Client error (4xx) or final attempt — fail immediately
                     error_msg = response_data.get("message", f"API error: {resp.status}")
                     self._stats["errors"] += 1
                     return SubmitResponseResult(success=False, error=error_msg)
-            
-            self._stats["responses_submitted"] += 1
-            
-            return SubmitResponseResult(
-                success=True,
-                response_id=response_data.get("responseId"),
-                message=response_data.get("message")
-            )
-            
-        except Exception as e:
-            self._stats["errors"] += 1
-            return SubmitResponseResult(success=False, error=str(e))
+                    
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                last_error = str(e)
+                if attempt < max_retries:
+                    wait = 2 ** attempt
+                    if settings.LOG_LEVEL == LogLevel.DEBUG:
+                        print(f"Submit attempt {attempt} failed ({e}), retrying in {wait}s...")
+                    await asyncio.sleep(wait)
+                    continue
+            except Exception as e:
+                self._stats["errors"] += 1
+                return SubmitResponseResult(success=False, error=str(e))
+        
+        # All retries exhausted
+        self._stats["errors"] += 1
+        return SubmitResponseResult(success=False, error=f"Failed after {max_retries} attempts: {last_error}")
     
     # ==================== File Upload ====================
     

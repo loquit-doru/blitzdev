@@ -125,6 +125,21 @@ def classify_job(prompt: str) -> str:
     return "hybrid"
 
 
+async def _classify_with_llm(llm, prompt: str) -> str:
+    """Fallback classifier using a cheap LLM call for non-English or ambiguous prompts.
+    Groq is free and responds in <1s."""
+    try:
+        resp = await llm.generate(
+            prompt=f"Classify this job as exactly 'text' or 'project'. Reply with one word only.\n\nJob: {prompt[:300]}",
+            max_tokens=10,
+            temperature=0.0,
+        )
+        answer = resp.content.strip().lower()
+        return "project" if "project" in answer else "text"
+    except Exception:
+        return "hybrid"  # safe default on failure
+
+
 console = Console()
 
 
@@ -517,6 +532,12 @@ function saveState(k,v) {{ appState[k]=v; localStorage.setItem('blitzdev_state',
     async def _process_job(self, job: Job) -> PipelineResult:
         """Route job to the right pipeline based on classification."""
         job_type = classify_job(job.prompt)
+
+        # If keyword classifier returned 'hybrid' (uncertain), try LLM classifier  
+        if job_type == "hybrid":
+            job_type = await _classify_with_llm(self.llm, job.prompt)
+            console.print(f"[dim]LLM reclassified hybrid → [bold]{job_type}[/bold][/dim]")
+
         console.print(f"[dim]Job classified as: [bold]{job_type}[/bold] | budget=${job.budget}[/dim]")
 
         if job_type == "text":
@@ -596,6 +617,12 @@ function saveState(k,v) {{ appState[k]=v; localStorage.setItem('blitzdev_state',
                 console.print("[green]  ✓ Post-build enhancements applied[/green]")
             except Exception as e:
                 console.print(f"[yellow]  ⚠ Enhancement skipped: {e}[/yellow]")
+
+            # Step 2.6: Structural HTML validation (fast, no LLM)
+            html_stripped = build.html.strip() if build.html else ""
+            if not (html_stripped.startswith("<!DOCTYPE") or html_stripped.startswith("<html")) or not html_stripped.endswith("</html>"):
+                console.print("[yellow]  ⚠ HTML structurally invalid (truncated?) — falling back to text path[/yellow]")
+                return await self._process_text_job(job)
 
             # Step 3: Evaluate (skip for cheap jobs — speed > perfection)
             evaluation = None
