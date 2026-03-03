@@ -87,7 +87,7 @@ class FixerAgent:
                         temperature=0.3,
                         system_prompt=self.system_prompt,
                         max_tokens=settings.MAX_TOKENS,
-                        provider=LLMProvider.DEEPSEEK
+                        provider=settings.QUALITY_LLM  # Gemini: free & good at HTML fixes
                     )
                     
                     new_html, new_css, new_js = self._parse_fixed_code(response.content)

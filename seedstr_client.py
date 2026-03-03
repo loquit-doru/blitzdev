@@ -8,6 +8,7 @@ import asyncio
 import base64
 import json
 import time
+from collections import OrderedDict
 from typing import Optional, Dict, Any, Callable, AsyncGenerator, List
 from dataclasses import dataclass, field
 from enum import Enum
@@ -184,7 +185,7 @@ class SeedstrClient:
         self.session: Optional[aiohttp.ClientSession] = None
         self._stop_polling = False
         self._last_job_id: Optional[str] = None
-        self._processed_job_ids: set = set()  # Robust dedup — never reprocess a job
+        self._processed_job_ids: OrderedDict = OrderedDict()  # FIFO dedup — insertion order preserved
         self._MAX_PROCESSED_IDS = 10_000  # Cap to prevent memory leak on long runs
         self._stats = {
             "polls": 0,
@@ -377,25 +378,30 @@ class SeedstrClient:
             Job when available
         """
         self._stop_polling = False
+        poll_count = 0
         
         while not self._stop_polling:
             try:
                 jobs = await self.list_jobs(use_v2=use_v2)
+                poll_count += 1
+                
+                # Heartbeat every 20 polls (~60s at 3s interval)
+                if poll_count % 20 == 0:
+                    from datetime import datetime
+                    now = datetime.now().strftime("%H:%M:%S")
+                    print(f"  💓 [{now}] Poll #{poll_count} | {len(self._processed_job_ids)} jobs seen | {self._stats['responses_submitted']} submitted")
                 
                 for job in jobs:
-                    # Skip already processed jobs (robust dedup)
+                    # Skip already processed jobs (FIFO dedup via OrderedDict)
                     if job.id in self._processed_job_ids:
                         continue
                     
                     # Only process open jobs
                     if job.is_open():
-                        self._processed_job_ids.add(job.id)
-                        # Cap dedup set to prevent memory leak on long runs
-                        if len(self._processed_job_ids) > self._MAX_PROCESSED_IDS:
-                            # Keep most recent half (set is unordered, but acceptable for dedup)
-                            excess = len(self._processed_job_ids) - (self._MAX_PROCESSED_IDS // 2)
-                            for _ in range(excess):
-                                self._processed_job_ids.pop()
+                        self._processed_job_ids[job.id] = True
+                        # FIFO eviction: remove OLDEST entries when cap exceeded
+                        while len(self._processed_job_ids) > self._MAX_PROCESSED_IDS:
+                            self._processed_job_ids.popitem(last=False)  # pop oldest
                         self._last_job_id = job.id
                         self._stats["jobs_received"] += 1
                         

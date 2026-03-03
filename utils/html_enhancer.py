@@ -105,7 +105,7 @@ _DARK_MODE_TOGGLE_HTML = """<!-- Dark mode toggle -->
 </button>"""
 
 _DARK_MODE_INIT_JS = """\
-if(localStorage.getItem('theme')==='dark'||(!'theme' in localStorage&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark');}"""
+if(localStorage.getItem('theme')==='dark'||(!localStorage.getItem('theme')&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark');}"""
 
 
 # ── Feature detection helpers ────────────────────────────────────────

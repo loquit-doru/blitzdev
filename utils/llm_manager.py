@@ -36,7 +36,7 @@ if _parent not in sys.path:
 from config import settings, LLMProvider, LogLevel
 
 # ── Resilience constants ─────────────────────────────────────────────
-PROVIDER_COOLDOWN_SEC = 60        # skip provider for 60s after failure
+PROVIDER_COOLDOWN_SEC = 15        # skip provider for 15s after rate-limit (Groq recovers fast)
 REQUEST_TIMEOUT_SEC = 180         # hard timeout per API call (Gemini~65s, DeepSeek~110s, Anthropic~180s)
 DEEPSEEK_MAX_TOKENS = 8192       # DeepSeek API hard limit
 
