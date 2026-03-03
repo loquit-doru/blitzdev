@@ -27,7 +27,11 @@ from google.genai import types as genai_types
 
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Ensure parent dir is importable (needed when running as script, not package)
+_parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _parent not in sys.path:
+    sys.path.insert(0, _parent)
 
 from config import settings, LLMProvider, LogLevel
 
@@ -151,7 +155,7 @@ class LLMManager:
             LLMResponse with generated content and metadata
         """
         provider = provider or settings.PRIMARY_LLM
-        temperature = temperature or settings.TEMPERATURE_BUILDER
+        temperature = temperature if temperature is not None else settings.TEMPERATURE_BUILDER
         max_tokens = max_tokens or settings.MAX_TOKENS
         
         # ── Build smart fallback chain ────────────────────────

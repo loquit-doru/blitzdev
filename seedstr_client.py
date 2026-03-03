@@ -17,7 +17,10 @@ import aiohttp
 
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+_parent = os.path.dirname(os.path.abspath(__file__))
+if _parent not in sys.path:
+    sys.path.insert(0, _parent)
 
 from config import settings, LogLevel
 
@@ -182,6 +185,7 @@ class SeedstrClient:
         self._stop_polling = False
         self._last_job_id: Optional[str] = None
         self._processed_job_ids: set = set()  # Robust dedup — never reprocess a job
+        self._MAX_PROCESSED_IDS = 10_000  # Cap to prevent memory leak on long runs
         self._stats = {
             "polls": 0,
             "jobs_received": 0,
@@ -386,6 +390,12 @@ class SeedstrClient:
                     # Only process open jobs
                     if job.is_open():
                         self._processed_job_ids.add(job.id)
+                        # Cap dedup set to prevent memory leak on long runs
+                        if len(self._processed_job_ids) > self._MAX_PROCESSED_IDS:
+                            # Keep most recent half (set is unordered, but acceptable for dedup)
+                            excess = len(self._processed_job_ids) - (self._MAX_PROCESSED_IDS // 2)
+                            for _ in range(excess):
+                                self._processed_job_ids.pop()
                         self._last_job_id = job.id
                         self._stats["jobs_received"] += 1
                         
