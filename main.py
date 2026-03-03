@@ -450,6 +450,7 @@ class BlitzDevAgent:
             response = await self.llm.generate(
                 prompt=user_prompt,
                 temperature=0.7,
+                max_tokens=4096,  # cap for Anthropic SDK (avoids 'streaming required' error)
                 system_prompt=system,
                 provider=text_llm,
             )
@@ -468,6 +469,7 @@ class BlitzDevAgent:
                 retry_response = await self.llm.generate(
                     prompt=retry_prompt,
                     temperature=0.7,
+                    max_tokens=4096,
                     system_prompt=system,
                     provider=text_llm,
                 )

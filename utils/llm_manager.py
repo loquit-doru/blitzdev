@@ -262,6 +262,8 @@ class LLMManager:
                 except Exception as e:
                     last_error = e
                     err_str = str(e).lower()
+                    # ALWAYS log provider errors (not just in DEBUG)
+                    print(f"  ❌ {prov.value} error: {type(e).__name__}: {str(e)[:200]}")
                     # Rate limit → longer cooldown
                     if '429' in err_str or 'rate' in err_str:
                         self._set_cooldown(prov, PROVIDER_COOLDOWN_SEC)
@@ -269,8 +271,6 @@ class LLMManager:
                         self._set_cooldown(prov, 300)  # 5min for auth errors
                     else:
                         self._set_cooldown(prov, 30)
-                    if settings.DEBUG:
-                        print(f"Provider {prov.value} failed: {e}")
                     break  # move to next provider
         
         # All providers failed
