@@ -202,6 +202,10 @@ class BlitzDevAgent:
     4. Submits solutions with file attachments
     """
     
+    # Concurrency limits — text jobs are fast (2-5s), project jobs are heavy (60-150s)
+    MAX_CONCURRENT_TEXT = 3      # text jobs can overlap (different Groq calls)
+    MAX_CONCURRENT_PROJECT = 1   # project jobs are heavy (builder + critic + fixer)
+    
     def __init__(self):
         self.client = SeedstrClient()
         self.packer = get_packer(settings.MAX_ZIP_SIZE_MB)
@@ -222,6 +226,11 @@ class BlitzDevAgent:
             "total_time": 0.0
         }
         self.pipeline_history: List[PipelineResult] = []
+        
+        # Concurrency control
+        self._text_semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_TEXT)
+        self._project_semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_PROJECT)
+        self._active_tasks: set = set()  # track running tasks for graceful shutdown
         
         # Output directories
         self.output_dir = settings.OUTPUT_DIR
@@ -272,15 +281,16 @@ class BlitzDevAgent:
             result = await self._process_job(test_job)
             self._display_result(result)
         else:
-            # Polling loop
-            console.print(f"[green]Starting polling loop (interval: {self.client.poll_interval}s)[/green]")
+            # Polling loop — PARALLEL job processing
+            console.print(f"[green]Starting polling loop (interval: {self.client.poll_interval}s) "
+                         f"[parallel: {self.MAX_CONCURRENT_TEXT}T + {self.MAX_CONCURRENT_PROJECT}P][/green]")
             
             async for job in self.client.poll_for_jobs(use_v2=True):
                 if not self.running:
                     break
                 
                 console.print(f"\n[bold cyan]📥 Received job: {job.id}[/bold cyan]")
-                console.print(f"[dim]Type: {job.job_type.value} | Budget: ${job.budget}[/dim]")
+                console.print(f"[dim]Type: {job.job_type.value} | Budget: ${job.budget} | Active: {len(self._active_tasks)}[/dim]")
                 console.print(f"[dim]{job.prompt[:100]}...[/dim]")
                 
                 # Check if SWARM job needs acceptance
@@ -292,20 +302,47 @@ class BlitzDevAgent:
                         continue
                     console.print(f"[green]Job accepted! Deadline: {accept_result.response_deadline}[/green]")
                 
-                try:
-                    result = await asyncio.wait_for(self._process_job(job), timeout=600)
-                    self._display_result(result)
-                except asyncio.TimeoutError:
-                    console.print(f"[red]⏰ Job {job.id} timed out after 600s — skipping[/red]")
-                    result = None
-                
-                self.stats["jobs_processed"] += 1
-                if result and result.success:
-                    self.stats["successful_builds"] += 1
-                else:
-                    self.stats["failed_builds"] += 1
+                # Launch job in background — don't block polling
+                task = asyncio.create_task(
+                    self._run_job_with_semaphore(job),
+                    name=f"job-{job.id[:8]}"
+                )
+                self._active_tasks.add(task)
+                task.add_done_callback(self._active_tasks.discard)
+            
+            # Wait for remaining tasks before shutdown
+            if self._active_tasks:
+                console.print(f"[yellow]Waiting for {len(self._active_tasks)} active jobs to finish...[/yellow]")
+                await asyncio.gather(*self._active_tasks, return_exceptions=True)
         
         await self._shutdown()
+    
+    async def _run_job_with_semaphore(self, job: Job):
+        """Process a job with concurrency control via semaphore.
+        
+        Text jobs use _text_semaphore (3 concurrent).
+        Project jobs use _project_semaphore (1 concurrent).
+        This prevents LLM rate-limit storms while keeping text jobs fast.
+        """
+        job_type = classify_job(job.prompt)
+        sem = self._text_semaphore if job_type == "text" else self._project_semaphore
+        
+        async with sem:
+            try:
+                result = await asyncio.wait_for(self._process_job(job), timeout=600)
+                self._display_result(result)
+            except asyncio.TimeoutError:
+                console.print(f"[red]⏰ Job {job.id} timed out after 600s — skipping[/red]")
+                result = None
+            except Exception as e:
+                console.print(f"[red]💥 Job {job.id} crashed: {e}[/red]")
+                result = None
+            
+            self.stats["jobs_processed"] += 1
+            if result and result.success:
+                self.stats["successful_builds"] += 1
+            else:
+                self.stats["failed_builds"] += 1
     
     async def _health_check(self) -> bool:
         """Run health checks"""
