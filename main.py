@@ -470,18 +470,17 @@ class BlitzDevAgent:
 
     # ─── Text-only fast-path ───────────────────────────────────────
     async def _process_text_job(self, job: Job) -> PipelineResult:
-        """Single-phase text: web search → Groq (full prompt) → submit ONCE.
+        """Single-phase text: web search → Groq (full prompt) → HTML+ZIP → submit as FILE.
 
-        Seedstr returns 409 on re-submit, so we get ONE shot. Make it count:
-        - Full _SYSTEM_PROMPT with markdown/honesty/quality rules
-        - Web search context injected BEFORE generation
-        - ~3.5-4s total (still first responder vs 30s+ competitors)
+        Seedstr returns 409 on re-submit, so we get ONE shot.
+        Mystery prompt requires ZIP — we submit as FILE with ZIP attached.
+        Flow: web search → LLM → wrap HTML → ZIP → upload → submit FILE (once).
 
-        STANDARD jobs: web search + Groq quality → submit → HTML upgrade (fire-and-forget)
-        SWARM jobs: Groq fast → submit → done
+        STANDARD jobs: web search + Groq quality → ZIP → submit FILE
+        SWARM jobs: Groq fast → ZIP → submit FILE
         """
         start_time = time.time()
-        console.print("\n[bold]📝 Text-Only Fast Path[/bold]")
+        console.print("\n[bold]📝 Text-Only Fast Path (ZIP)[/bold]")
 
         try:
             # ── SWARM: single-phase Groq (speed only) ──
@@ -545,21 +544,65 @@ class BlitzDevAgent:
             console.print(f"[green]✓ Response ({len(text_answer)} chars, {gen_time:.1f}s)[/green]")
 
             # ══════════════════════════════════════════════════════
-            # STANDARD: Step 3 — Submit ONCE (Seedstr 409 = no re-submit)
+            # STANDARD: Step 3 — Wrap HTML → ZIP → Upload → Submit as FILE
+            # Mystery prompt requires ZIP. One submit only (409 on re-submit).
             # ══════════════════════════════════════════════════════
-            submission = await self.client.submit_response(
-                job_id=job.id,
-                content=text_answer,
-                response_type=ResponseType.TEXT,
-                use_v2=True,
-            )
-            total_time = time.time() - start_time
-            console.print(f"[green]✓ Submitted TEXT in {total_time:.1f}s[/green]")
+            try:
+                # 3a. Wrap text in beautiful HTML page
+                html_content = self._wrap_text_as_html(job.prompt, text_answer)
+                html_content = enhance_html(html_content, job.prompt)
 
-            # ── Fire-and-forget HTML upgrade (FILE type — separate from TEXT) ──
-            asyncio.create_task(
-                self._upgrade_text_to_html(job, text_answer)
-            )
+                # 3b. Package into ZIP
+                package = self.packer.create_webapp_package(
+                    html_content=html_content,
+                    additional_files={},
+                    output_path=self.output_dir / f"{job.id}-text.zip",
+                    app_name=f"blitzdev-{job.id}",
+                    metadata={"job_id": job.id, "type": "text_response"}
+                )
+
+                if package.success and (package.zip_path or package.zip_bytes):
+                    # 3c. Upload ZIP to Seedstr CDN
+                    if package.zip_path:
+                        file_attachment = await self.client.upload_file(package.zip_path)
+                    else:
+                        file_attachment = await self.client.upload_bytes(
+                            f"{job.id}-text.zip", package.zip_bytes
+                        )
+
+                    # 3d. Submit as FILE with ZIP attached (like seed-agent does)
+                    submission = await self.client.submit_response(
+                        job_id=job.id,
+                        content=text_answer,
+                        response_type=ResponseType.FILE,
+                        files=[file_attachment],
+                        use_v2=True,
+                    )
+                    total_time = time.time() - start_time
+                    console.print(f"[green]✓ Submitted FILE+ZIP in {total_time:.1f}s[/green]")
+                else:
+                    # ZIP packaging failed — fallback to TEXT submit
+                    console.print(f"[yellow]⚠ ZIP failed, submitting as TEXT[/yellow]")
+                    submission = await self.client.submit_response(
+                        job_id=job.id,
+                        content=text_answer,
+                        response_type=ResponseType.TEXT,
+                        use_v2=True,
+                    )
+                    total_time = time.time() - start_time
+                    console.print(f"[green]✓ Submitted TEXT in {total_time:.1f}s[/green]")
+
+            except Exception as zip_err:
+                # ZIP/upload failed — fallback to TEXT submit
+                console.print(f"[yellow]⚠ ZIP/upload failed ({zip_err}), submitting as TEXT[/yellow]")
+                submission = await self.client.submit_response(
+                    job_id=job.id,
+                    content=text_answer,
+                    response_type=ResponseType.TEXT,
+                    use_v2=True,
+                )
+                total_time = time.time() - start_time
+                console.print(f"[green]✓ Submitted TEXT in {total_time:.1f}s[/green]")
 
             return PipelineResult(
                 job_id=job.id,
@@ -572,7 +615,7 @@ class BlitzDevAgent:
             return await self._process_project_job(job)
 
     async def _text_swarm_fast(self, job: Job, start_time: float) -> PipelineResult:
-        """SWARM single-phase: Groq → submit → done. Maximum speed, no teaser/upgrade."""
+        """SWARM single-phase: Groq → HTML+ZIP → submit as FILE. Speed + ZIP delivery."""
         console.print("[dim]LLM: Groq (SWARM speed)[/dim]")
         response = await self.llm.generate(
             prompt=job.prompt,
@@ -585,14 +628,46 @@ class BlitzDevAgent:
         gen_time = time.time() - start_time
         console.print(f"[green]✓ SWARM response ({len(text_answer)} chars, {gen_time:.1f}s)[/green]")
 
-        submission = await self.client.submit_response(
-            job_id=job.id,
-            content=text_answer,
-            response_type=ResponseType.TEXT,
-            use_v2=True,
-        )
-        total_time = time.time() - start_time
-        console.print(f"[green]✓ SWARM submitted in {total_time:.1f}s[/green]")
+        # Package as ZIP (mystery prompt needs it)
+        try:
+            html_content = self._wrap_text_as_html(job.prompt, text_answer)
+            html_content = enhance_html(html_content, job.prompt)
+            package = self.packer.create_webapp_package(
+                html_content=html_content,
+                additional_files={},
+                output_path=self.output_dir / f"{job.id}-swarm.zip",
+                app_name=f"blitzdev-{job.id}",
+                metadata={"job_id": job.id, "type": "swarm_response"}
+            )
+            if package.success and (package.zip_path or package.zip_bytes):
+                if package.zip_path:
+                    file_attachment = await self.client.upload_file(package.zip_path)
+                else:
+                    file_attachment = await self.client.upload_bytes(
+                        f"{job.id}-swarm.zip", package.zip_bytes
+                    )
+                submission = await self.client.submit_response(
+                    job_id=job.id,
+                    content=text_answer,
+                    response_type=ResponseType.FILE,
+                    files=[file_attachment],
+                    use_v2=True,
+                )
+                total_time = time.time() - start_time
+                console.print(f"[green]✓ SWARM submitted FILE+ZIP in {total_time:.1f}s[/green]")
+            else:
+                raise ValueError("ZIP packaging failed")
+        except Exception as e:
+            console.print(f"[yellow]⚠ SWARM ZIP failed ({e}), submitting TEXT[/yellow]")
+            submission = await self.client.submit_response(
+                job_id=job.id,
+                content=text_answer,
+                response_type=ResponseType.TEXT,
+                use_v2=True,
+            )
+            total_time = time.time() - start_time
+            console.print(f"[green]✓ SWARM submitted TEXT in {total_time:.1f}s[/green]")
+
         return PipelineResult(
             job_id=job.id, success=True, submission=submission, total_time=total_time,
         )
