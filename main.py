@@ -43,112 +43,147 @@ from utils.web_search import web_search, format_search_context, needs_web_search
 # ── Job classification ──────────────────────────────────────────────
 import re as _re
 
-# Keywords that ALWAYS mean a project/HTML deliverable (checked FIRST)
-_PROJECT_KEYWORDS = [
-    "build a website", "build a web", "build a page", "build a landing",
-    "build a dashboard", "build a portfolio", "build a game", "build a calculator",
-    "build a app", "build a tool", "build a form", "build a clone", "build a site",
-    "build me a", "build me an", "build an app", "build an e-commerce",
-    "build the best", "build the ultimate",
-    "create a website", "create a web", "create an app",
-    "create a landing", "landing page", "dashboard", "portfolio",
-    "calculator", "game", "todo", "web form", "contact form", "signup form", "e-commerce",
-    "generate a website", "make a website", "make an app", "make me a website",
-    "html page", "css style", "javascript app", "web app",
-    "clone", "replica", "mockup", "prototype", "wireframe",
-    # Intent-based: "I want/need a website"
-    "want a website", "need a website", "website for my", "website for a",
-    "write me a website", "design a website", "develop a website",
-    # Non-English project keywords
+# ── PRINCIPLE: "When in doubt → TEXT"
+# Text path (Sonnet + web search + HTML upgrade) is ALWAYS good.
+# Project path (full pipeline) is ONLY for explicit web deliverables.
+# Misclassifying text→project = slow + wrong output.
+# Misclassifying project→text = still decent (Sonnet writes good content + HTML upgrade).
+# Therefore: ONLY classify as project when 100% certain.
+
+# ── PROJECT: explicit web/app deliverable with VERB + OBJECT ──
+# Must contain action verb + web deliverable noun.
+# "create a comprehensive analysis" ≠ project (analysis is text)
+# "create a landing page" = project (landing page is web deliverable)
+_PROJECT_VERB_RE = _re.compile(
+    r'\b(build|create|make|generate|design|develop|code|implement|write)\b',
+    _re.IGNORECASE
+)
+_PROJECT_OBJECT_RE = _re.compile(
+    r'\b(website|web\s*site|web\s*page|web\s*app|landing\s*page|homepage|'
+    r'html\s*page|single[- ]page|multi[- ]page|'
+    r'dashboard|portfolio|calculator|game|todo\s*app|to-do\s*app|'
+    r'e-?commerce|online\s*store|web\s*shop|'
+    r'contact\s*form|signup\s*form|registration\s*form|login\s*page|'
+    r'clone|replica|mockup|prototype|wireframe|'
+    r'saas|web\s*tool|interactive\s*tool|browser\s*game|'
+    r'app\s*that|application\s*that|site\s*that)\b',
+    _re.IGNORECASE
+)
+
+# Standalone project phrases (no verb+object needed)
+_PROJECT_STANDALONE = [
+    "landing page", "web app", "web application",
+    "html page", "css style", "javascript app",
     "site web", "webseite", "pagina web", "aplicatie web",
+    # Hackathon-style: "build the best/ultimate/coolest thing"
+    "build the best", "build the ultimate", "build the coolest",
+    "build something", "build anything", "build the most",
 ]
 
-# Keywords / phrases that signal a purely textual answer
-_TEXT_ONLY_KEYWORDS = [
-    # Writing tasks
-    "write a tweet", "write a twitter", "twitter thread", "viral tweet",
-    "write a thread", "thread about",
-    "write an email", "write a letter", "write a poem", "write a story",
-    "write a song", "write a script", "write an essay", "write a review",
-    "write a bio", "write a caption", "write a slogan", "write a tagline",
-    "write a summary", "write a press release", "write a cover letter",
-    "write a blog post", "write an article", "write a speech",
-    "write about", "write me",
-    # Editing tasks
-    "translate", "rewrite", "summarize", "proofread", "edit this",
-    # Question / information tasks
-    "what's the latest", "whats the latest", "what is the latest",
-    "what are the latest", "what's new",
-    "what happened", "what is happening", "what's happening",
-    "explain", "describe", "compare", "analyze", "analyse",
-    "answer the question", "answer this", "answer me",
-    "list the", "give me", "tell me about", "tell me",
-    "find me", "research", "look up", "search for",
-    # Opinion / creative text
-    "opinion on", "thoughts on", "review of",
-    "brainstorm", "suggest", "recommend", "advice",
-    "come up with", "generate ideas", "ideas for",
-]
+# ── TEXT signals: these OVERRIDE project classification ──
+# If any of these appear, it's text even if project keywords also match.
+# "create a comprehensive analysis of landing page designs" = TEXT
+_TEXT_OVERRIDE_RE = _re.compile(
+    r'\b(analysis|analyze|analyse|research|report|essay|article|'
+    r'summary|summarize|overview|review|comparison|compare|'
+    r'explain|describe|discuss|evaluate|assess|critique|'
+    r'guide|tutorial|how[- ]to|tips|advice|strategy|plan|'
+    r'write\s+about|write\s+a\s+(?:tweet|thread|email|letter|poem|'
+    r'story|song|script|essay|review|bio|caption|slogan|tagline|'
+    r'press\s+release|cover\s+letter|blog|article|speech|pitch|'
+    r'proposal|newsletter|whitepaper|case\s+study)|'
+    r'opinion|thoughts?\s+on|brainstorm|suggest|recommend|'
+    r'ideas?\s+for|come\s+up\s+with|translate|rewrite|proofread|'
+    r'cold\s+email|outreach|marketing\s+copy|sales\s+copy|ad\s+copy|'
+    r'tweet|thread|viral|hook)\b',
+    _re.IGNORECASE
+)
 
-# Regex patterns for question-like prompts (compiled once)
+# Question starters → always text
 _QUESTION_RE = _re.compile(
-    r'^(what|who|when|where|why|how|which|can you|could you|do you|is there|are there|tell me|give me|find|list|explain|describe)',
+    r'^\s*(what|who|when|where|why|how|which|can\s+you|could\s+you|'
+    r'do\s+you|is\s+there|are\s+there|tell\s+me|give\s+me|find|'
+    r'list|explain|describe|should|would|will|does|did|has|have)\b',
     _re.IGNORECASE
 )
 
 
 def classify_job(prompt: str) -> str:
-    """Classify a job prompt → 'text' | 'project' | 'hybrid'.
+    """Classify a job prompt → 'text' | 'project'.
 
-    'text'    – plain text answer (tweet, email, question)
-    'project' – deliverable code/HTML project (website, app, game)
-    'hybrid'  – could go either way; we still build HTML but also
-                submit a plain-text summary as the response content.
+    DESIGN: Default to 'text'. Only return 'project' when we're
+    certain a web deliverable (HTML/app) is requested.
+
+    'text'    – any written content, analysis, research, creative writing
+    'project' – explicit web deliverable (website, app, game, dashboard)
     """
     p = prompt.lower().strip()
-    # Normalize common contractions for matching
-    p_norm = p.replace("'", "").replace("\u2019", "")
 
-    # Check project keywords first (higher priority)
-    for kw in _PROJECT_KEYWORDS:
-        if kw in p_norm:
-            return "project"
+    # ── Step 1: Text override (highest priority) ──
+    # If any text signal is present, it's text regardless of project keywords.
+    # "Create a comprehensive analysis" → text (has "analysis")
+    # "Write a comparison of landing pages" → text (has "comparison")
+    if _TEXT_OVERRIDE_RE.search(p):
+        return "text"
 
-    # Then text-only keywords (check against normalized too)
-    for kw in _TEXT_ONLY_KEYWORDS:
-        if kw in p_norm:
-            return "text"
-
-    # Regex heuristic: starts like a question / request
+    # ── Step 2: Question detection ──
     if _QUESTION_RE.search(p):
         return "text"
 
-    # Short prompts ending in '?' are almost always questions
-    if p.endswith("?"):
+    # Ends with question mark → text
+    if p.rstrip().endswith("?"):
         return "text"
 
-    # Very short prompts (< 12 words) without project keywords → likely text
+    # ── Step 3: Standalone project phrases ──
+    for kw in _PROJECT_STANDALONE:
+        if kw in p:
+            return "project"
+
+    # ── Step 4: Verb + Object project detection ──
+    # Must have BOTH a project verb AND a project object noun
+    has_verb = bool(_PROJECT_VERB_RE.search(p))
+    has_object = bool(_PROJECT_OBJECT_RE.search(p))
+    if has_verb and has_object:
+        return "project"
+
+    # ── Step 5: Short prompts → text (safe default) ──
     word_count = len(p.split())
-    if word_count < 12:
+    if word_count < 15:
         return "text"
 
-    # Default: build an HTML project (our strength)
-    return "hybrid"
+    # ── Step 6: Default → text ──
+    # When uncertain, text path is ALWAYS safer:
+    # - Sonnet produces high-quality content
+    # - Web search adds real data
+    # - HTML upgrade makes it visually appealing
+    # - 20s vs 120s response time
+    return "text"
 
 
 async def _classify_with_llm(llm, prompt: str) -> str:
-    """Fallback classifier using a cheap LLM call for non-English or ambiguous prompts.
-    Groq is free and responds in <1s."""
+    """LLM fallback classifier — only called if we ever introduce 'hybrid' again.
+    Currently not used since we default to 'text' instead of 'hybrid'."""
     try:
         resp = await llm.generate(
-            prompt=f"Classify this job as exactly 'text' or 'project'. Reply with one word only.\n\nJob: {prompt[:300]}",
+            prompt=(
+                "You are a job classifier for an AI agent platform.\n"
+                "Classify this job as 'text' or 'project'.\n\n"
+                "RULES:\n"
+                "- 'project' = the user wants a VISUAL WEB DELIVERABLE "
+                "(website, web app, game, dashboard, interactive tool, HTML page)\n"
+                "- 'text' = EVERYTHING ELSE (analysis, writing, research, "
+                "questions, guides, plans, emails, tweets, creative content)\n"
+                "- When unsure → 'text'\n\n"
+                f"Job: {prompt[:500]}\n\n"
+                "Answer with exactly one word: text or project"
+            ),
             max_tokens=10,
             temperature=0.0,
         )
         answer = resp.content.strip().lower()
-        return "project" if "project" in answer else "text"
+        return "project" if answer == "project" else "text"
     except Exception:
-        return "hybrid"  # safe default on failure
+        return "text"  # safe default on failure
 
 
 console = Console()
@@ -717,24 +752,20 @@ function saveState(k,v) {{ appState[k]=v; localStorage.setItem('blitzdev_state',
 
     # ─── Main dispatcher ─────────────────────────────────────────────
     async def _process_job(self, job: Job) -> PipelineResult:
-        """Route job to the right pipeline based on classification."""
+        """Route job to the right pipeline based on classification.
+        
+        Only two paths: text (default, safe, fast) or project (explicit web deliverable).
+        When in doubt → text. Text path + HTML upgrade handles 90% of jobs well.
+        """
         job_type = classify_job(job.prompt)
-
-        # If keyword classifier returned 'hybrid' (uncertain), try LLM classifier  
-        if job_type == "hybrid":
-            job_type = await _classify_with_llm(self.llm, job.prompt)
-            console.print(f"[dim]LLM reclassified hybrid → [bold]{job_type}[/bold][/dim]")
 
         console.print(f"[dim]Job classified as: [bold]{job_type}[/bold] | budget=${job.budget}[/dim]")
 
-        if job_type == "text":
-            return await self._process_text_job(job)
-        elif job_type == "hybrid":
-            # Hybrid: text answer first (fast), then try project too
-            return await self._process_text_job(job)
-        else:
-            # 'project' → full HTML pipeline
+        if job_type == "project":
             return await self._process_project_job(job)
+        else:
+            # text (default) — Sonnet + web search + HTML upgrade
+            return await self._process_text_job(job)
 
     async def _process_project_job(self, job: Job) -> PipelineResult:
         """
