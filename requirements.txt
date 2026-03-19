@@ -1,4 +1,8 @@
-# FlashForge - Seedstr Hackathon Agent
+# FlashForge - Vertex Swarm Challenge 2026 | Track 3: Agent Economy
+
+# Swarm coordination (FoxMQ MQTT 5.0 + Tashi Vertex BFT)
+paho-mqtt>=2.1.0
+
 # Core API & Web
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0

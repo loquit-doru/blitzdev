@@ -1,0 +1,53 @@
+# Dockerfile.foxmq — FoxMQ broker (Tashi Vertex BFT, MQTT 5.0), Linux amd64
+#
+# Builds a lean image with the FoxMQ binary downloaded from GitHub releases.
+# An entrypoint script generates foxmq.d/ (address book + key) on first start
+# if the shared volume is empty, then runs the broker.
+
+FROM debian:bookworm-slim
+
+ARG FOXMQ_VERSION=0.3.1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        ca-certificates \
+        netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Download FoxMQ Linux amd64 binary from GitHub releases
+RUN set -ex; \
+    URL="https://github.com/tashigit/foxmq/releases/download/v${FOXMQ_VERSION}/foxmq_${FOXMQ_VERSION}_linux-amd64.tar.gz"; \
+    curl -fsSL "$URL" -o foxmq.tar.gz; \
+    tar -xzf foxmq.tar.gz; \
+    # Handle both flat tarballs and tarballs with a subfolder
+    find . -maxdepth 2 -name 'foxmq' -not -name '*.tar.gz' -exec mv {} /app/foxmq \; 2>/dev/null || true; \
+    test -f /app/foxmq || { echo "ERROR: foxmq binary not found after extract"; ls -la; exit 1; }; \
+    chmod +x /app/foxmq; \
+    rm -f foxmq.tar.gz
+
+# Entrypoint: generate address book once (idempotent), then start broker
+COPY <<'EOF' /app/docker-entrypoint.sh
+#!/bin/sh
+set -e
+cd /app
+if [ ! -f foxmq.d/key_0.pem ]; then
+    echo "[foxmq] Generating address book (first start)..."
+    ./foxmq address-book from-range 127.0.0.1 19793 19793
+    echo "[foxmq] Address book generated."
+fi
+echo "[foxmq] Starting broker — MQTT :1883 | Vertex BFT UDP :19793"
+exec ./foxmq run --secret-key-file=foxmq.d/key_0.pem --allow-anonymous-login
+EOF
+RUN chmod +x /app/docker-entrypoint.sh
+
+# MQTT port (agents connect here)
+EXPOSE 1883
+# Vertex BFT consensus (inter-node, UDP)
+EXPOSE 19793/udp
+
+HEALTHCHECK --interval=5s --timeout=3s --retries=12 \
+    CMD nc -z localhost 1883 || exit 1
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

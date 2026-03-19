@@ -1,0 +1,154 @@
+version: "3.9"
+
+# FlashForge Agent Swarm — Docker Compose
+# Runs FoxMQ broker + 4 independent AI agent nodes + job injector.
+# Coordination is leaderless — agents bid via FoxMQ (MQTT 5.0 + Vertex BFT).
+#
+# Usage:
+#   cp .env.example .env   # add your GROQ_API_KEY
+#   docker compose build
+#   docker compose up
+#
+#   Custom prompt:
+#   PROMPT="Build a portfolio for a designer" docker compose run --rm injector
+#
+# Output files are written to ./swarm_output/ (shared volume).
+# PoC logs are written to ./poc_logs/ (shared volume).
+
+x-common: &common
+  build:
+    context: .
+    dockerfile: Dockerfile.swarm
+  working_dir: /app
+  volumes:
+    - ./poc_logs:/app/poc_logs
+    - ./swarm_output:/app/swarm_output
+    - ./.env:/app/.env:ro
+  environment:
+    SWARM_SECRET: ${SWARM_SECRET:-swarm-secret-change-in-prod}
+    POC_LOG_DIR: /app/poc_logs
+    OUTPUT_DIR: /app/swarm_output
+    GROQ_API_KEY: ${GROQ_API_KEY:-}
+    GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    FOXMQ_HOST: foxmq
+    FOXMQ_PORT: "1883"
+  restart: unless-stopped
+
+services:
+  # ── FoxMQ broker — Vertex BFT MQTT 5.0 ────────────────────────────────────
+  foxmq:
+    build:
+      context: .
+      dockerfile: Dockerfile.foxmq
+    container_name: ff_foxmq
+    volumes:
+      - foxmq_data:/app/foxmq.d    # persist address book + key across restarts
+    ports:
+      - "1883:1883"
+      - "19793:19793/udp"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 1883 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  planner:
+    <<: *common
+    container_name: ff_planner
+    command: python swarm/run_planner_node.py
+    environment:
+      NODE_ID: planner-001
+    depends_on:
+      foxmq:
+        condition: service_healthy
+
+  builder:
+    <<: *common
+    container_name: ff_builder
+    command: python swarm/run_builder_node.py
+    environment:
+      NODE_ID: builder-001
+    depends_on:
+      foxmq:
+        condition: service_healthy
+
+  critic:
+    <<: *common
+    container_name: ff_critic
+    command: python swarm/run_critic_node.py
+    environment:
+      NODE_ID: critic-001
+      PASS_THRESHOLD: "75"
+      CRITICS_EXPECTED: "2"   # BFT quorum: wait for both critics
+      QUORUM_TIMEOUT_S: "20"
+    depends_on:
+      foxmq:
+        condition: service_healthy
+
+  critic2:
+    <<: *common
+    container_name: ff_critic2
+    command: python swarm/run_critic_node.py
+    environment:
+      NODE_ID: critic-002
+      PASS_THRESHOLD: "75"
+      CRITICS_EXPECTED: "2"   # BFT quorum: wait for both critics
+      QUORUM_TIMEOUT_S: "20"
+    depends_on:
+      foxmq:
+        condition: service_healthy
+
+  dashboard:
+    <<: *common
+    container_name: ff_dashboard
+    command: python swarm/dashboard_server.py
+    environment:
+      DASHBOARD_PORT: "5050"
+    ports:
+      - "5050:5050"
+    restart: unless-stopped
+    depends_on:
+      foxmq:
+        condition: service_healthy
+
+  fixer:
+    <<: *common
+    container_name: ff_fixer
+    command: python swarm/run_fixer_node.py
+    environment:
+      NODE_ID: fixer-001
+    depends_on:
+      foxmq:
+        condition: service_healthy
+
+  injector:
+    <<: *common
+    container_name: ff_injector
+    command: >
+      python swarm/job_injector.py
+      "${PROMPT:-Build a landing page for a coffee shop}"
+      --timeout 300
+    environment:
+      NODE_ID: injector-001
+    # Injector runs once then exits; other nodes keep running
+    restart: "no"
+    depends_on:
+      foxmq:
+        condition: service_healthy
+      planner:
+        condition: service_started
+      builder:
+        condition: service_started
+      critic:
+        condition: service_started
+      critic2:
+        condition: service_started
+      fixer:
+        condition: service_started
+      dashboard:
+        condition: service_started
+
+volumes:
+  foxmq_data:    # persists FoxMQ address book + key across container restarts
