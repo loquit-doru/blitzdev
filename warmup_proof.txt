@@ -1,49 +1,49 @@
 ============================================================
-  ≡ƒñ¥  Warm-Up: Stateful Handshake
-  Vertex Swarm Challenge 2026 ΓÇö Track 3 | Agent Economy
+  🤝  Warm-Up: Stateful Handshake
+  Vertex Swarm Challenge 2026 — Track 3 | Agent Economy
   broker : FoxMQ 127.0.0.1:1883
   stale threshold : 10.0s  |  heartbeat : 2s
 ============================================================
 
-ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-  Phase 1 ΓÇö Discovery & Handshake
-ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-[scout:agent-A] Γ£ô Node started ΓÇö FoxMQ 127.0.0.1:1883
-[carrier:agent-B] Γ£ô Node started ΓÇö FoxMQ 127.0.0.1:1883
+────────────────────────────────────────────────────────────
+  Phase 1 — Discovery & Handshake
+────────────────────────────────────────────────────────────
+[scout:agent-A] ✓ Node started — FoxMQ 127.0.0.1:1883
+[carrier:agent-B] ✓ Node started — FoxMQ 127.0.0.1:1883
 
-  [agent-A] peers: carrier(Γ£ô)
-  [agent-B] peers: scout(Γ£ô)
+  [agent-A] peers: carrier(✓)
+  [agent-B] peers: scout(✓)
 
-ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-  Phase 2 ΓÇö Heartbeat watch (30 s)
-ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-  [ 2s]  A sees: carrier(Γ£ô)  |  B sees: scout(Γ£ô)
-  [ 4s]  A sees: carrier(Γ£ô)  |  B sees: scout(Γ£ô)
-  [ 6s]  A sees: carrier(Γ£ô)  |  B sees: scout(Γ£ô)
-  [ 8s]  A sees: carrier(Γ£ô)  |  B sees: scout(Γ£ô)
-  [10s]  A sees: carrier(Γ£ô)  |  B sees: scout(Γ£ô)
-  [12s]  A sees: carrier(Γ£ô)  |  B sees: scout(Γ£ô)
-  [14s]  A sees: carrier(Γ£ô)  |  B sees: scout(Γ£ô)
-  [16s]  A sees: carrier(Γ£ô)  |  B sees: scout(Γ£ô)
-  [18s]  A sees: carrier(Γ£ô)  |  B sees: scout(Γ£ô)
-  [20s]  A sees: carrier(Γ£ô)  |  B sees: scout(Γ£ô)
-  [22s]  A sees: carrier(Γ£ô)  |  B sees: scout(Γ£ô)
-  [24s]  A sees: carrier(Γ£ô)  |  B sees: scout(Γ£ô)
-  [26s]  A sees: carrier(Γ£ô)  |  B sees: scout(Γ£ô)
-  [28s]  A sees: carrier(Γ£ô)  |  B sees: scout(Γ£ô)
-  [30s]  A sees: carrier(Γ£ô)  |  B sees: scout(Γ£ô)
+────────────────────────────────────────────────────────────
+  Phase 2 — Heartbeat watch (30 s)
+────────────────────────────────────────────────────────────
+  [ 2s]  A sees: carrier(✓)  |  B sees: scout(✓)
+  [ 4s]  A sees: carrier(✓)  |  B sees: scout(✓)
+  [ 6s]  A sees: carrier(✓)  |  B sees: scout(✓)
+  [ 8s]  A sees: carrier(✓)  |  B sees: scout(✓)
+  [10s]  A sees: carrier(✓)  |  B sees: scout(✓)
+  [12s]  A sees: carrier(✓)  |  B sees: scout(✓)
+  [14s]  A sees: carrier(✓)  |  B sees: scout(✓)
+  [16s]  A sees: carrier(✓)  |  B sees: scout(✓)
+  [18s]  A sees: carrier(✓)  |  B sees: scout(✓)
+  [20s]  A sees: carrier(✓)  |  B sees: scout(✓)
+  [22s]  A sees: carrier(✓)  |  B sees: scout(✓)
+  [24s]  A sees: carrier(✓)  |  B sees: scout(✓)
+  [26s]  A sees: carrier(✓)  |  B sees: scout(✓)
+  [28s]  A sees: carrier(✓)  |  B sees: scout(✓)
+  [30s]  A sees: carrier(✓)  |  B sees: scout(✓)
 
-ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-  Phase 3 ΓÇö Role-state replication (target: <1 000 ms)
-ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-  [agent-B] Γ£ô ROLE_CHANGE ΓåÉ agent-A  new_role='scout_active'  latency=1ms
+────────────────────────────────────────────────────────────
+  Phase 3 — Role-state replication (target: <1 000 ms)
+────────────────────────────────────────────────────────────
+  [agent-B] ✓ ROLE_CHANGE ← agent-A  new_role='scout_active'  latency=1ms
 
-  Γ£ô B acknowledged in 1 ms  Γ£à PASS
+  ✓ B acknowledged in 1 ms  ✅ PASS
 
-ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-  Phase 4 ΓÇö Failure injection: killing Agent A for 13 s
-ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-  ≡ƒÆÇ Agent A stopped (simulating crash / dead battery / network loss)
+────────────────────────────────────────────────────────────
+  Phase 4 — Failure injection: killing Agent A for 13 s
+────────────────────────────────────────────────────────────
+  💀 Agent A stopped (simulating crash / dead battery / network loss)
   [ 1s]  B's view of agent-A: online
   [ 2s]  B's view of agent-A: online
   [ 3s]  B's view of agent-A: online
@@ -54,22 +54,23 @@
   [ 8s]  B's view of agent-A: online
   [ 9s]  B's view of agent-A: online
   [10s]  B's view of agent-A: online
-[carrier:agent-B] ΓÜá  STALE  peer=agent-A role=scout_active silent=11.1s (threshold=10.0s)
-  [11s]  B's view of agent-A: stale ΓåÉ STALE detected! Γ£ô
-  ΓÅ▒  Stale detected after 11s (threshold=10.0s) Γ£ô
+  [11s]  B's view of agent-A: online
+[carrier:agent-B] ⚠  STALE  peer=agent-A role=scout_active silent=11.1s (threshold=10.0s)
+  [12s]  B's view of agent-A: stale ← STALE detected! ✓
+  ⏱  Stale detected after 12s (threshold=10.0s) ✓
 
-ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-  Phase 5 ΓÇö Recovery: Agent A reconnects
-ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-[scout_active:agent-A] Γ£ô Node started ΓÇö FoxMQ 127.0.0.1:1883
-  [agent-B] Γ£ô PEER_ANNOUNCE from agent-A ΓÇö back online!
+────────────────────────────────────────────────────────────
+  Phase 5 — Recovery: Agent A reconnects
+────────────────────────────────────────────────────────────
+[scout_active:agent-A] ✓ Node started — FoxMQ 127.0.0.1:1883
+  [agent-B] ✓ PEER_ANNOUNCE from agent-A — back online!
   [after recovery] B's view of agent-A: online
 
 ============================================================
-  Γ£à  Warm-Up Complete ΓÇö Proof-of-Coordination Summary:
-  1. Discovery + handshake              Γ£ô
-  2. Heartbeats (30s continuous)          Γ£ô
-  3. Role replication < 1 000 ms        Γ£ô  (1ms)
-  4. STALE detection (>10.0s silent)     Γ£ô
-  5. Auto-recovery on reconnect         Γ£ô
+  ✅  Warm-Up Complete — Proof-of-Coordination Summary:
+  1. Discovery + handshake              ✓
+  2. Heartbeats (30s continuous)          ✓
+  3. Role replication < 1 000 ms        ✓  (1ms)
+  4. STALE detection (>10.0s silent)     ✓
+  5. Auto-recovery on reconnect         ✓
 ============================================================
